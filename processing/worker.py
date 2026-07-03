@@ -513,13 +513,13 @@ def sync_and_stitch(left_path: Path, right_path: Path, out_path: Path, session_i
         print(f"Homography stitch: canvas={canvas_w}x{canvas_h} crop=[{crop_x0}:{crop_x1},{crop_y0}:{crop_y1}] → output={out_w}x{out_h}")
         use_homo = True
     else:
-        # Side-by-side stitch: 88/12 split puts seam in open grass past center circle
-        left_keep  = int(W * 0.88)
-        right_skip = int(W * 0.12)
+        # Side-by-side stitch: 92/8 split — wider angle, seam past center circle
+        left_keep  = int(W * 0.92)
+        right_skip = int(W * 0.08)
         right_keep = W - right_skip
         total_w    = left_keep + right_keep
         out_w, out_h = total_w - (total_w % 2), H
-        FEATHER = 80   # narrow blend — fast transition prevents center-circle ghost
+        FEATHER = 60   # narrow blend — fast transition prevents center-circle ghost
         blend_start = max(0, left_keep - FEATHER // 2)
         blend_end   = min(total_w, left_keep + FEATHER // 2)
         bw = blend_end - blend_start
