@@ -378,14 +378,15 @@ def sync_and_stitch(left_path: Path, right_path: Path, out_path: Path, session_i
     def colour_correct(frame):
         return np.clip(frame.astype(np.float32) * sc_arr + sh_arr, 0, 255).astype(np.uint8)
 
-    # ── Vertical alignment via ORB feature matching ──────────────────────────
-    dy_shift = 0
+    # ── Camera alignment via ORB: rotation angle + vertical shift ───────────
+    dy_shift    = 0
+    rot_angle   = 0.0   # degrees — right camera tilt relative to left
     if left_frame is not None and right_frame is not None:
         try:
             search_w = int(W * 0.40)
             gray_l = cv2.cvtColor(left_frame[:, W - search_w:], cv2.COLOR_BGR2GRAY)
             gray_r = cv2.cvtColor(right_frame[:, :search_w],    cv2.COLOR_BGR2GRAY)
-            orb = cv2.ORB_create(nfeatures=2000)
+            orb = cv2.ORB_create(nfeatures=3000)
             kp_l, des_l = orb.detectAndCompute(gray_l, None)
             kp_r, des_r = orb.detectAndCompute(gray_r, None)
             if des_l is not None and des_r is not None and len(kp_l) >= 8 and len(kp_r) >= 8:
@@ -396,9 +397,15 @@ def sync_and_stitch(left_path: Path, right_path: Path, out_path: Path, session_i
                     pts_l = np.float32([kp_l[m.queryIdx].pt for m in good])
                     pts_r = np.float32([kp_r[m.trainIdx].pt for m in good])
                     dy_shift = int(round(float(np.median(pts_l[:, 1] - pts_r[:, 1]))))
-                    print(f"ORB dy_shift={dy_shift}px from {len(good)} matches")
+                    # estimateAffinePartial2D gives rotation + scale + translation
+                    M_aff, inliers = cv2.estimateAffinePartial2D(
+                        pts_r, pts_l, method=cv2.RANSAC, ransacReprojThreshold=8)
+                    if M_aff is not None:
+                        rot_angle = float(np.degrees(np.arctan2(M_aff[1, 0], M_aff[0, 0])))
+                        rot_angle = float(np.clip(rot_angle, -35.0, 35.0))
+                    print(f"ORB dy_shift={dy_shift}px  rot={rot_angle:.1f}° from {len(good)} matches")
         except Exception as e:
-            print(f"ORB failed ({e}), dy_shift=0")
+            print(f"ORB failed ({e}), dy_shift=0 rot=0")
 
     # ── Audio sync ──────────────────────────────────────────────────────────
     tmp_dir = out_path.parent
@@ -530,6 +537,13 @@ def sync_and_stitch(left_path: Path, right_path: Path, out_path: Path, session_i
         str(out_path),
     ], stdin=subprocess.PIPE)
 
+    # Pre-build rotation matrix for right frame (applied every frame)
+    rot_M = None
+    if abs(rot_angle) > 0.3:
+        cx, cy = W / 2.0, H / 2.0
+        rot_M = cv2.getRotationMatrix2D((cx, cy), rot_angle, 1.0)
+        print(f"Applying rotation correction: {rot_angle:.1f}° to every right frame")
+
     frame_idx = 0
     try:
         while True:
@@ -540,6 +554,10 @@ def sync_and_stitch(left_path: Path, right_path: Path, out_path: Path, session_i
 
             if fr.shape[0] != H or fr.shape[1] != W:
                 fr = cv2.resize(fr, (W, H))
+
+            # Correct physical camera tilt of right camera
+            if rot_M is not None:
+                fr = cv2.warpAffine(fr, rot_M, (W, H), borderMode=cv2.BORDER_REPLICATE)
 
             fr_cc = colour_correct(fr)
 
