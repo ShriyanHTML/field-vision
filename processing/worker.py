@@ -100,13 +100,14 @@ def _upload(s3, src: Path, key: str) -> None:
 def _report(session_id: str, payload: dict) -> None:
     import requests
     base = os.environ.get("NEXT_PUBLIC_SITE_URL", "").rstrip("/")
-    if not base:
-        print("_report: NEXT_PUBLIC_SITE_URL not set, skipping")
-        return
+    # Fallback to production URL if secret is missing or wrong
+    if not base or base.endswith("404") or "/api" in base:
+        base = "https://field-vision-seven.vercel.app"
     url = f"{base}/api/sessions/{session_id}/report"
+    print(f"_report → {url}")
     try:
         r = requests.post(url, json=payload, timeout=30)
-        print(f"_report {payload} → {r.status_code} {r.text[:200]}")
+        print(f"_report {payload} → {r.status_code} {r.text[:100]}")
     except Exception as e:
         print(f"_report FAILED: {e}")
 
