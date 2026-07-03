@@ -51,7 +51,21 @@ export default function SessionPage() {
     const res = await fetch(`/api/sessions/${id}`);
     if (res.ok) {
       const data = await res.json();
-      setSession(data);
+      // Preserve stable video URLs — presigned URLs change every poll but the
+      // underlying file doesn't, so keep old URLs to prevent video element remounts
+      setSession(prev => {
+        if (!prev) return data;
+        return {
+          ...data,
+          urls: {
+            ...data.urls,
+            stitched_video: prev.urls?.stitched_video || data.urls?.stitched_video,
+            tracked_video:  prev.urls?.tracked_video  || data.urls?.tracked_video,
+            left_raw:       prev.urls?.left_raw       || data.urls?.left_raw,
+            right_raw:      prev.urls?.right_raw      || data.urls?.right_raw,
+          },
+        };
+      });
     }
   }, [id]);
 
