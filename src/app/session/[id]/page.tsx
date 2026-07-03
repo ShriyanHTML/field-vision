@@ -139,17 +139,17 @@ export default function SessionPage() {
           {isProcessing && (
             <div className="flex flex-col gap-2">
               <div className="flex justify-between text-xs text-green-500">
-                <span>Processing with AI...</span>
+                <span>{(session.progress ?? 0) <= 1 ? "Starting worker — takes ~2 min to boot..." : "Processing with AI..."}</span>
                 <span>{session.progress ?? 0}%</span>
               </div>
               <div className="w-full bg-green-900/30 rounded-full h-2">
                 <div
                   className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${session.progress ?? 0}%` }}
+                  style={{ width: `${Math.max(session.progress ?? 0, 2)}%` }}
                 />
               </div>
               <p className="text-xs text-green-700 mt-1">
-                Stitching videos, running ball tracking, detecting highlights...
+                {(session.progress ?? 0) <= 1 ? "Worker is cold-starting, progress will appear shortly..." : "Stitching videos, running ball tracking, detecting highlights..."}
               </p>
             </div>
           )}

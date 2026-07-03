@@ -1070,5 +1070,6 @@ def process(body: dict) -> dict:
     left_url  = body.get("left_url",  "")
     right_url = body.get("right_url", "")
 
+    _report(session_id, {"status": "processing", "progress": 1})
     stitch_session.spawn(session_id, left_key, right_key, left_url, right_url)
     return {"jobId": f"modal-{session_id}", "ok": True}
