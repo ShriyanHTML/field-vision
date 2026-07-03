@@ -181,20 +181,6 @@ export default function SessionPage() {
         </div>
       )}
 
-      {/* Stuck at processing — show retry if no progress for a long time */}
-      {isProcessing && session.left_video_key && session.right_video_key && (
-        <div className="flex justify-end mb-2">
-          <button
-            onClick={retryProcessing}
-            disabled={retrying}
-            className="flex items-center gap-2 text-yellow-600 hover:text-yellow-400 text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Restart processing
-          </button>
-        </div>
-      )}
-
       {/* Reprocess / Start Processing — show whenever both videos exist */}
       {session.left_video_key && session.right_video_key && (
         <div className="flex justify-end mb-4">
@@ -204,7 +190,7 @@ export default function SessionPage() {
             className="flex items-center gap-2 bg-green-950/40 hover:bg-green-900/50 border border-green-800/40 text-green-500 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
           >
             {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            {isDone ? "Reprocess with latest algorithm" : "Start Processing"}
+            {isDone ? "Reprocess with latest algorithm" : isProcessing ? "Restart processing" : "Start Processing"}
           </button>
         </div>
       )}
