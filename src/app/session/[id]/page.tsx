@@ -36,7 +36,13 @@ export default function SessionPage() {
 
   async function retryProcessing() {
     setRetrying(true);
-    await fetch(`/api/sessions/${id}/retry`, { method: "POST" });
+    try {
+      const res = await fetch(`/api/sessions/${id}/retry`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) alert(`Failed to start processing: ${data.error || res.status}`);
+    } catch (e) {
+      alert(`Failed to start processing: ${e}`);
+    }
     await fetchSession();
     setRetrying(false);
   }
