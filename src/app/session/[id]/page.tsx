@@ -325,28 +325,32 @@ export default function SessionPage() {
         </>
       )}
 
-      {/* Raw footage downloads — shown whenever either raw video exists */}
+      {/* Raw footage — inline video players */}
       {(session.urls?.left_raw || session.urls?.right_raw) && (
-        <div className="mt-8 border border-green-900/40 rounded-2xl p-5">
+        <div className="mt-8">
           <p className="text-xs font-semibold text-green-600 uppercase tracking-widest mb-4">Raw Footage</p>
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className={cn("grid gap-4", session.urls?.left_raw && session.urls?.right_raw ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
             {session.urls?.left_raw && (
-              <a
-                href={session.urls.left_raw}
-                download
-                className="flex-1 flex items-center justify-center gap-2 bg-green-950/40 hover:bg-green-900/40 border border-green-800/40 hover:border-green-700/60 text-green-300 text-sm font-medium py-3 px-4 rounded-xl transition-colors"
-              >
-                <Download size={14} /> Left Camera
-              </a>
+              <div className="rounded-2xl overflow-hidden border border-green-900/40 bg-black">
+                <video src={session.urls.left_raw} controls className="w-full aspect-video" playsInline />
+                <div className="flex items-center justify-between px-4 py-2 border-t border-green-900/30">
+                  <span className="text-xs text-green-600 font-mono">LEFT CAMERA</span>
+                  <a href={session.urls.left_raw} download className="flex items-center gap-1 text-green-500 hover:text-green-300 text-xs">
+                    <Download size={11} /> Download
+                  </a>
+                </div>
+              </div>
             )}
             {session.urls?.right_raw && (
-              <a
-                href={session.urls.right_raw}
-                download
-                className="flex-1 flex items-center justify-center gap-2 bg-green-950/40 hover:bg-green-900/40 border border-green-800/40 hover:border-green-700/60 text-green-300 text-sm font-medium py-3 px-4 rounded-xl transition-colors"
-              >
-                <Download size={14} /> Right Camera
-              </a>
+              <div className="rounded-2xl overflow-hidden border border-green-900/40 bg-black">
+                <video src={session.urls.right_raw} controls className="w-full aspect-video" playsInline />
+                <div className="flex items-center justify-between px-4 py-2 border-t border-green-900/30">
+                  <span className="text-xs text-green-600 font-mono">RIGHT CAMERA</span>
+                  <a href={session.urls.right_raw} download className="flex items-center gap-1 text-green-500 hover:text-green-300 text-xs">
+                    <Download size={11} /> Download
+                  </a>
+                </div>
+              </div>
             )}
           </div>
         </div>
