@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import { Loader2, CheckCircle2, AlertCircle, Play, Download, Trophy, Film, QrCode, RefreshCw } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Play, Download, Trophy, Film, QrCode, RefreshCw, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Session, Highlight } from "@/types/database";
 import { cn } from "@/lib/cn";
@@ -53,13 +53,14 @@ export default function SessionPage() {
     fetchSession();
   }, [fetchSession]);
 
-  // Poll every 4 seconds while processing — fallback if Realtime doesn't fire
+  // Poll every 4 seconds while processing, or while done but tracking not yet available
   useEffect(() => {
     if (!session) return;
-    if (session.status === "done" || session.status === "error") return;
+    if (session.status === "error") return;
+    if (session.status === "done" && session.tracked_video_key) return;
     const interval = setInterval(fetchSession, 4000);
     return () => clearInterval(interval);
-  }, [session?.status, fetchSession]);
+  }, [session?.status, session?.tracked_video_key, fetchSession]);
 
   // Realtime subscription for live status updates
   useEffect(() => {
@@ -147,9 +148,14 @@ export default function SessionPage() {
             </div>
           )}
 
-          {/* QR codes for phone recording */}
+              {/* QR codes for live recording */}
           {(session.status === "created" || session.status === "uploading") && !isProcessing && (
             <RecordingQRCodes sessionId={id} />
+          )}
+
+          {/* Direct upload buttons for existing footage */}
+          {(session.status === "created" || session.status === "uploading" || session.status === "error") && !isProcessing && (
+            <VideoUploader sessionId={id} />
           )}
         </div>
       )}
@@ -185,6 +191,20 @@ export default function SessionPage() {
           >
             {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             Restart processing
+          </button>
+        </div>
+      )}
+
+      {/* Reprocess / Start Processing — show whenever both videos exist */}
+      {session.left_video_key && session.right_video_key && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={retryProcessing}
+            disabled={retrying}
+            className="flex items-center gap-2 bg-green-950/40 hover:bg-green-900/50 border border-green-800/40 text-green-500 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            {isDone ? "Reprocess with latest algorithm" : "Start Processing"}
           </button>
         </div>
       )}
@@ -398,6 +418,114 @@ function RecordingQRCodes({ sessionId }: { sessionId: string }) {
       <p className="text-xs text-green-800 text-center mt-3">
         Both phones must scan and connect before recording can start
       </p>
+    </div>
+  );
+}
+
+function VideoUploader({ sessionId }: { sessionId: string }) {
+  const [uploading, setUploading] = useState<"left" | "right" | null>(null);
+  const [done, setDone] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const [progress, setProgress] = useState(0);
+  const [expandedQR, setExpandedQR] = useState<"left" | "right" | null>(null);
+  const leftRef = useRef<HTMLInputElement>(null);
+  const rightRef = useRef<HTMLInputElement>(null);
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  async function upload(side: "left" | "right", file: File) {
+    setUploading(side);
+    setProgress(0);
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, camera: side }),
+      });
+      if (!res.ok) throw new Error("Failed to get upload URL");
+      const { url, key } = await res.json();
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
+        xhr.onload = async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            await fetch(`/api/sessions/${sessionId}/upload-done`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ side, key }),
+            });
+            resolve();
+          } else reject(new Error(`Upload failed: ${xhr.status} ${xhr.responseText.slice(0, 200)}`));
+        };
+        xhr.onerror = () => reject(new Error("Network error — check your connection"));
+        xhr.open("PUT", url);
+        xhr.setRequestHeader("Content-Type", "video/mp4");
+        xhr.send(file);
+      });
+
+      setDone(d => ({ ...d, [side]: true }));
+    } catch (e) {
+      alert(`Upload failed: ${e}`);
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-green-900/40 pt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Upload size={14} className="text-green-500" />
+        <p className="text-sm font-semibold text-green-300">Upload existing footage</p>
+      </div>
+      <p className="text-xs text-green-700 mb-3">Upload from this phone, or scan the QR code with the other phone to upload directly from there.</p>
+      <div className="grid grid-cols-2 gap-3">
+        {(["left", "right"] as const).map((side) => {
+          const isActive = uploading === side;
+          const isDone = done[side];
+          const uploadUrl = `${origin}/session/${sessionId}/upload?side=${side}`;
+          const showQR = expandedQR === side;
+
+          return (
+            <div key={side} className="flex flex-col gap-2">
+              <input ref={side === "left" ? leftRef : rightRef} type="file" accept="video/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) upload(side, f); }} />
+
+              {/* Upload button */}
+              <button
+                onClick={() => (side === "left" ? leftRef : rightRef).current?.click()}
+                disabled={!!uploading || isDone}
+                className={cn(
+                  "w-full flex flex-col items-center gap-2 py-4 rounded-xl border text-sm font-medium transition-colors",
+                  isDone ? "border-green-500/60 bg-green-900/20 text-green-300" :
+                  isActive ? "border-green-700/40 bg-green-900/10 text-green-400" :
+                  "border-green-900/40 bg-green-950/20 text-green-500 hover:border-green-700/50"
+                )}
+              >
+                {isDone ? <CheckCircle2 size={18} /> : isActive ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                <span className="capitalize">{side} Camera</span>
+                {isActive && <span className="text-xs text-green-600">{progress}%</span>}
+                {isDone && <span className="text-xs text-green-500">Uploaded ✓</span>}
+              </button>
+
+              {/* QR code toggle */}
+              {!isDone && (
+                <button
+                  onClick={() => setExpandedQR(showQR ? null : side)}
+                  className="text-xs text-green-700 hover:text-green-500 text-center underline"
+                >
+                  {showQR ? "Hide QR" : "Upload from other phone →"}
+                </button>
+              )}
+              {showQR && !isDone && (
+                <div className="flex flex-col items-center gap-2 p-3 bg-white rounded-xl">
+                  <QRCodeSVG value={uploadUrl} size={140} bgColor="#ffffff" fgColor="#000000" />
+                  <p className="text-xs text-black/60 text-center">Scan with {side} camera phone</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
