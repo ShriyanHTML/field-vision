@@ -33,7 +33,11 @@ export default function NewSessionPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ team_name: teamName, match_date: matchDate }),
     });
-    if (!res.ok) { setError("Failed to create session"); return; }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setError(body?.error ? `Failed to create session: ${body.error}` : "Failed to create session");
+      return;
+    }
     const { id } = await res.json();
     setSessionId(id);
     setStep("upload");
@@ -107,7 +111,11 @@ export default function NewSessionPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ team_name: teamName, match_date: matchDate }),
     });
-    if (!res.ok) { setError("Failed to create session"); return; }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setError(body?.error ? `Failed to create session: ${body.error}` : "Failed to create session");
+      return;
+    }
     const { id } = await res.json();
     router.push(`/session/${id}/record?side=${side}&host=1`);
   }
