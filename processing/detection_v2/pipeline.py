@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -46,6 +47,30 @@ ROLE_COLOR = {
 
 def _to_pil(frame_bgr: np.ndarray) -> Image.Image:
     return Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+
+
+def _open_h264_writer(output_path: str, fps: float, w: int, h: int) -> subprocess.Popen:
+    """
+    Pipes raw BGR frames into ffmpeg to encode real H.264 — cv2.VideoWriter's
+    'mp4v' fourcc produces MPEG-4 Part 2 video that OpenCV can read back but
+    that most browsers/players (Chrome, QuickTime, etc.) cannot decode.
+    Uses the ffmpeg binary bundled by imageio-ffmpeg so this doesn't depend
+    on a system ffmpeg install.
+    """
+    import imageio_ffmpeg
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", str(fps),
+        "-i", "pipe:0",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p",  # widest player/browser compatibility
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def _person_boxes(detections, conf_threshold: float) -> list[tuple[float, float, float, float]]:
@@ -131,10 +156,7 @@ def run_pipeline(
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
-    if not writer.isOpened():
-        raise RuntimeError(f"Could not open VideoWriter for: {output_path}")
+    encoder = _open_h264_writer(output_path, fps, w, h)
 
     tracker = Tracker()
     ball_tracker = BallTracker(frame_w=w, frame_h=h)
@@ -190,14 +212,26 @@ def run_pipeline(
                 bcx, bcy = int((bx1 + bx2) / 2), int((by1 + by2) / 2)
                 cv2.circle(annotated, (bcx, bcy), 8, (0, 255, 80), 2)
 
-            writer.write(annotated)
+            try:
+                encoder.stdin.write(annotated.tobytes())
+            except (BrokenPipeError, OSError):
+                print(f"Encoder pipe broke at frame {frame_idx}")
+                break
             frame_idx += 1
 
             if total_frames > 0 and frame_idx % max(1, total_frames // 20) == 0:
                 print(f"  {frame_idx}/{total_frames} frames ({100 * frame_idx // total_frames}%)")
     finally:
         cap.release()
-        writer.release()
+        try:
+            encoder.stdin.close()
+        except OSError:
+            pass
+        stderr_bytes = encoder.stderr.read()
+        encoder.wait()
+        if encoder.returncode != 0:
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")[-3000:]
+            raise RuntimeError(f"ffmpeg encoding failed after {frame_idx} frames (rc={encoder.returncode}):\n{stderr_text}")
 
     elapsed = time.time() - start
     metrics = {
