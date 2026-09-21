@@ -8,6 +8,7 @@ app/webhook flow. See processing/detection_v2/README.md for usage and for
 the exact stub-vs-fine-tuned-model caveats.
 """
 
+from .ball import BallTracker
 from .coco import BALL_CLASS_ID, PERSON_CLASS_ID
 from .pitch import PitchMask
 from .team import Role, TeamClassifier
@@ -21,4 +22,5 @@ __all__ = [
     "Role",
     "Track",
     "Tracker",
+    "BallTracker",
 ]

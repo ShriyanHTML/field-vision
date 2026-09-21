@@ -37,9 +37,33 @@ Optional flags:
 Output: an annotated MP4 (boxes colour-coded by stabilized role, ball
 marker, pitch-boundary overlay, track IDs) plus a metrics JSON with frame
 count, resolution, per-role detection counts, ball detections,
-`total_tracks_created` (the track-fragment-count proxy), and FPS — in the
-same shape as the Phase One/Two write-up's reported numbers, so a run here
-is directly comparable.
+`ball_detections_by_method` (see below), `total_tracks_created` (the
+track-fragment-count proxy), and FPS — in the same shape as the Phase
+One/Two write-up's reported numbers, so a run here is directly comparable.
+
+## Ball-detection fallback chain
+
+The ball is the hardest object here — small, fast, and the first thing a
+single detector pass misses. `ball.py` ports the same three-pass fallback
+chain `processing/worker.py`'s `run_tracking()` uses, adapted to RF-DETR:
+
+1. **Primary** — best ball-shaped box from the frame's main detection pass
+   (shape-filtered: aspect ratio 0.4–2.5, so shoes/bags aren't mistaken for
+   the ball).
+2. **Zoom retry** — if nothing found and the ball's last known position is
+   known, crop+upscale 2x around that position and re-run detection there
+   at a lower confidence threshold (0.18). A second, targeted inference
+   call only happens on this fallback path, not every frame.
+3. **Hough-circle fallback** — if the detector still finds nothing, look
+   for a bright circular blob via `cv2.HoughCircles`. worker.py restricts
+   this to a fixed horizontal "grass region" cutoff; here it's restricted
+   to the real `PitchMask` polygon instead, which also excludes the
+   crowd/touchline areas to the sides, not just above a horizontal line.
+
+`ball_detections_by_method` in the metrics JSON (`primary` /
+`zoom_retry` / `hough_fallback` / `not_found`) shows how often each stage
+had to carry the detection — useful for judging whether the fallback chain
+is pulling its weight on a given clip.
 
 ## What's real vs. stubbed right now
 

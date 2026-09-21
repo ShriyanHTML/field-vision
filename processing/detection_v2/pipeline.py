@@ -29,7 +29,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from .coco import BALL_CLASS_ID, PERSON_CLASS_ID
+from .ball import BallTracker
+from .coco import PERSON_CLASS_ID
 from .pitch import PitchMask
 from .team import Role, TeamClassifier, extract_kit_colour
 from .tracker import Tracker
@@ -47,20 +48,13 @@ def _to_pil(frame_bgr: np.ndarray) -> Image.Image:
     return Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
 
 
-def _split_detections(detections, conf_threshold: float):
-    """Splits an sv.Detections into (person_boxes, best_ball_box | None)."""
-    person_boxes: list[tuple[float, float, float, float]] = []
-    best_ball = None
-    best_ball_conf = 0.0
+def _person_boxes(detections, conf_threshold: float) -> list[tuple[float, float, float, float]]:
+    boxes = []
     for xyxy, conf, cls_id in zip(detections.xyxy, detections.confidence, detections.class_id):
-        if conf < conf_threshold:
+        if conf < conf_threshold or int(cls_id) != PERSON_CLASS_ID:
             continue
-        bbox = tuple(float(v) for v in xyxy)
-        if int(cls_id) == PERSON_CLASS_ID:
-            person_boxes.append(bbox)
-        elif int(cls_id) == BALL_CLASS_ID and conf > best_ball_conf:
-            best_ball, best_ball_conf = bbox, float(conf)
-    return person_boxes, best_ball
+        boxes.append(tuple(float(v) for v in xyxy))
+    return boxes
 
 
 def calibrate_team_classifier(
@@ -79,7 +73,7 @@ def calibrate_team_classifier(
             break
         if frame_idx % calibration_stride == 0:
             detections = model.predict(_to_pil(frame), threshold=conf_threshold)
-            person_boxes, _ = _split_detections(detections, conf_threshold)
+            person_boxes = _person_boxes(detections, conf_threshold)
             for bbox in person_boxes:
                 colour = extract_kit_colour(frame, bbox)
                 if colour is not None:
@@ -143,6 +137,7 @@ def run_pipeline(
         raise RuntimeError(f"Could not open VideoWriter for: {output_path}")
 
     tracker = Tracker()
+    ball_tracker = BallTracker(frame_w=w, frame_h=h)
     counts = {"player": 0, "goalkeeper": 0, "referee": 0, "unknown": 0, "ball": 0}
     frame_idx = 0
     start = time.time()
@@ -157,7 +152,8 @@ def run_pipeline(
                 break
 
             detections = model.predict(_to_pil(frame), threshold=conf_threshold)
-            person_boxes, ball_box = _split_detections(detections, conf_threshold)
+            person_boxes = _person_boxes(detections, conf_threshold)
+            ball_box = ball_tracker.update(model, frame, detections, conf_threshold, pitch_mask, frame_idx)
 
             keep_mask = pitch_mask.filter_boxes(person_boxes)
             on_pitch = [b for b, keep in zip(person_boxes, keep_mask) if keep]
@@ -214,6 +210,7 @@ def run_pipeline(
         "referee_detections": counts["referee"],
         "unknown_role_detections": counts["unknown"],
         "ball_detections": counts["ball"],
+        "ball_detections_by_method": ball_tracker.method_counts,
         "total_tracks_created": tracker.total_tracks_created,
         "elapsed_seconds": round(elapsed, 2),
         "fps": round(frame_idx / elapsed, 2) if elapsed > 0 else 0.0,
